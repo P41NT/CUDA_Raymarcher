@@ -91,4 +91,9 @@ namespace cam {
         float3 ray = screenCoord.x * right + screenCoord.y * top + front * z;
         return util::normalize(ray);
     }
+
+    __device__ __host__ 
+    float2 Camera::getRotation() {
+        return make_float2(yaw, pitch);
+    }
 }

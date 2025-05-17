@@ -15,6 +15,7 @@ namespace cam {
 
         __host__ void setPosition(float3 position);
         __host__ void setPosition(float x, float y, float z);
+        __host__ void setRotation(float yaw, float pitch);
 
         __host__ void moveForward(float speed);
         __host__ void moveBack(float speed);
@@ -32,5 +33,6 @@ namespace cam {
 
         __device__ float3 getRay(float2 screenCoord, float FOV);
         __host__ __device__ float3 getPosition();
+        __host__ __device__ float2 getRotation();
     };
 }

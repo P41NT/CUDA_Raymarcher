@@ -5,22 +5,19 @@
 #include <raylib.h>
 
 #include "../include/camera.cuh"
-#include "../include/utils.cuh"
+#include "../include/raymarcher.cuh"
+
+#include <stdio.h>
 
 #include <time.h>
 
-const float MAX_DIST = 100.0f;
-const int MAX_STEPS = 120.0f;
+__device__ float power = 8;
+__device__ float darkness = 60.0f;
+__device__ float cutoff = 16.0f;
+__device__ float blackAndWhite = 0.0f;
 
-const int WIDTH = 1600;
-const int HEIGHT = 1600;
-
-const float ASPECT_RATIO = (float) WIDTH / HEIGHT;
-
-const float EPSILON = 0.0001f;
-
-const float power = 8;
-
+__device__ float3 colorMixA = {0.1f, 0.0f, 1.0f};
+__device__ float3 colorMixB = {0.0f, 0.0f, 0.1f};
 
 __device__ float sphereSDF(float3 p, float radius, float3 center) {
     float3 diff = p - center;
@@ -106,10 +103,23 @@ __global__ void render(uchar4* canvas, cam::Camera& cam, float currTime) {
 
     float3 finalRay = cameraPosition + dist * rayDirection;
 
-    if (dist < MAX_DIST) {
+    float3 lightDirection = make_float3(0.0f, -1.0f, 0.0f);
 
-        float diffuse = sharp_exponential(fractalSteps / 20.0f, 0.3f);
-        float3 color = diffuse * make_float3(0.9f, 0.1f, 0.7f);
+    float3 background = util::lerp(
+        make_float3(51.0f, 3.0f, 20.0f),
+        make_float3(16.0f, 6.0f, 28.0f),
+        uv.y + 0.5f
+    );
+
+    if (dist < MAX_DIST) {
+        float3 normal = getNormal(finalRay);
+
+        float colorA = util::saturate(util::dot(make_float3(0.5, 0.5, 0.5) + normal*0.5f, (-1) * lightDirection));
+        float colorB = util::saturate(steps / cutoff);
+
+        float3 color = util::saturateV(colorA * colorMixA + colorB * colorMixB);
+        float brightness = util::length(color);
+        color = color + (1.0f - brightness) * make_float3(0.0f, 0.0f, 0.0f);
 
         canvas[y * WIDTH + x] = {
             (unsigned char)(255.0f * color.x),
@@ -120,81 +130,57 @@ __global__ void render(uchar4* canvas, cam::Camera& cam, float currTime) {
 
     }
     else {
-        float brightness = steps / MAX_STEPS;
-        float3 color = brightness * make_float3(0.9f, 0.1f, 0.8f);
+        float rim  = (steps / darkness);
+        float3 color = util::lerp(background, make_float3(255.0f, 255.0f, 255.0f), blackAndWhite) * rim;
+        float brightness = util::length(color);
         canvas[y * WIDTH + x] = {
-            (unsigned char)(255.0f * color.x),
-            (unsigned char)(255.0f * color.y),
-            (unsigned char)(255.0f * color.z),
+            (unsigned char)(color.x),
+            (unsigned char)(color.y),
+            (unsigned char)(color.z),
             255
         };
     }
 }
 
-int main() {
-    uchar4 *canvas;
-    cudaMallocManaged(&canvas, WIDTH * HEIGHT * sizeof(uchar4));
+__global__ void updateStuff(float power_host, float darkness_host, float cutoff_host, 
+                            float3 colorMixA_host, float3 colorMixB_host) {
+    power = power_host;
+    darkness = darkness_host;
+    cutoff = cutoff_host;
 
-    InitWindow(WIDTH, HEIGHT, "skibidi cuda raymarcher");
+    colorMixA = colorMixA_host;
+    colorMixB = colorMixB_host;
+}
 
-    Image image = {
-        .data = malloc(WIDTH * HEIGHT * sizeof(uchar4)),
-        .width = WIDTH,
-        .height = HEIGHT,
-        .mipmaps = 1,
-        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
-    };
+__device__ void boxBlur(uchar4* canvas, int radius) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    Texture2D canvasTexture = LoadTextureFromImage(image);
-    free(image.data); 
+    if (x > WIDTH || y > HEIGHT) return;
 
-    cam::Camera *camera = new cam::Camera();
+    int count = 0;
+    float3 sum = {0.0f, 0.0f, 0.0f};
 
-    uchar4 *hostCanvas = (uchar4 *)malloc(WIDTH * HEIGHT * sizeof(uchar4));
-    for (int i = 0; i < WIDTH * HEIGHT; i++) {
-        hostCanvas[i] = (uchar4){ 0, 0, 0, 255 };  
+    for (int i = -1; i <= 1; i++) {
+        for (int j = -1; j <= 1; j++) {
+            int nx = x + i;
+            int ny = y + j;
+
+            if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) {
+                uchar4 neighborColor = canvas[ny * WIDTH + nx];
+                sum = sum + make_float3(neighborColor.x, neighborColor.y, neighborColor.z);
+                count++;
+            }
+        }
     }
 
-    camera->calculateRotation();
-
-    while (!WindowShouldClose()) {
-        const dim3 blockSize(16, 16);
-        const dim3 gridSize((WIDTH + blockSize.x - 1) / blockSize.x, (HEIGHT + blockSize.y - 1) / blockSize.y);
-
-        cudaDeviceSynchronize();
-
-        if (IsKeyDown(KEY_W)) camera->moveForward(0.005f);
-        if (IsKeyDown(KEY_S)) camera->moveBack(0.005f);
-        if (IsKeyDown(KEY_A)) camera->moveLeft(0.005f);
-        if (IsKeyDown(KEY_D)) camera->moveRight(0.005f);
-
-        if (IsKeyDown(KEY_E)) camera->moveDown(0.005f);
-        if (IsKeyDown(KEY_Q)) camera->moveUp(0.005f);
-        
-        if (IsKeyDown(KEY_L)) camera->rotateRight(0.05f);
-        if (IsKeyDown(KEY_H)) camera->rotateLeft(0.05f);
-        if (IsKeyDown(KEY_K)) camera->rotateUp(0.05f);
-        if (IsKeyDown(KEY_J)) camera->rotateDown(0.05f);
-
-        camera->calculateRotation();
-
-        render<<<gridSize, blockSize>>>(canvas, *camera, 0.000002 * clock());
-
-        cudaDeviceSynchronize();
-        cudaMemcpy(hostCanvas, canvas, WIDTH * HEIGHT * sizeof(uchar4), cudaMemcpyDeviceToHost);
-
-        UpdateTexture(canvasTexture, hostCanvas);
-
-        BeginDrawing();
-        ClearBackground(WHITE);
-        DrawTexture(canvasTexture, 0, 0, WHITE);
-        EndDrawing();
+    if (count > 0) {
+        sum = sum / (float)count;
+        canvas[y * WIDTH + x] = {
+            (unsigned char)(sum.x),
+            (unsigned char)(sum.y),
+            (unsigned char)(sum.z),
+            255
+        };
     }
-
-    cudaFree(canvas);
-
-    UnloadTexture(canvasTexture);
-    CloseWindow();
-
-    return 0;
 }

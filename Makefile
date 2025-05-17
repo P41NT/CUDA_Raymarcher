@@ -1,5 +1,5 @@
 NVCC        := nvcc
-CFLAGS      := -O2 -arch=sm_75 -Iinclude
+CFLAGS      := -O2 -arch=sm_75 -Iinclude -Iexternal
 
 LDFLAGS     := -lraylib
 
