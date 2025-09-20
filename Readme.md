@@ -1,5 +1,7 @@
 # CUDA Raymarcher
 
+![Banner](./screenshots/banner.jpeg)
+
 A sample / experimental ray-marching renderer implemented with CUDA. Designed to explore GPU acceleration, distance fields, and basic shading in a CUDA environment.
 
 ---
