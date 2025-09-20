@@ -30,6 +30,6 @@ This project demonstrates:
 ---
 
 ## Screenshots
-[Screenshot1](./screenshots/image.png)
-[Screenshot2](./screenshots/image2.png)
-[Screenshot3](./screenshots/image3.png)
+![Screenshot1](./screenshots/image.png)
+![Screenshot2](./screenshots/image2.png)
+![Screenshot3](./screenshots/image3.png)
